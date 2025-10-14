@@ -552,14 +552,20 @@ export default function HomePage() {
 
         groups.forEach((idxs, gi) => {
           const header = document.createElement('div');
-        header.className = 'title-bar';
-        header.style.gridTemplateColumns = '28px ' + headerTemplateFor(idxs.length);
+          header.className = 'title-bar';
+          header.style.gridTemplateColumns = (typeof window !== 'undefined' && window.matchMedia('(min-width: 1920px)').matches
+            ? '12px 28px '
+            : '28px '
+          ) + headerTemplateFor(idxs.length);
           summary.appendChild(header);
           const btn = document.createElement('button');
           btn.className = 'collapse-btn';
           btn.setAttribute('aria-label', 'Toggle group ' + (gi + 1));
           btn.textContent = '▾';
           btn.dataset.expanded = 'true';
+          if (typeof window !== 'undefined' && window.matchMedia('(min-width: 1920px)').matches) {
+            btn.style.gridColumn = '2';
+          }
           header.appendChild(btn);
           idxs.forEach(idx => {
             const t = document.createElement('div');
@@ -574,6 +580,7 @@ export default function HomePage() {
             const ruleText = ruleTextMap[rulesForSeed[name]] || rulesForSeed[name];
             const col = document.createElement('div');
             col.className = 'res-col';
+            col.dataset.idx = String(idx);
             const inlineTitle = document.createElement('div');
             inlineTitle.className = 'title-cell inline-title';
             inlineTitle.textContent = 'Tunnel ' + name;
@@ -655,6 +662,8 @@ export default function HomePage() {
             btn.textContent = next ? '▾' : '▸';
             groupCols.forEach(c => { c.style.display = next ? '' : 'none'; });
           });
+          // Run reflow once to ensure header/columns are wired correctly
+          reflowGroupHeaders(summary);
         });
 
         const scenarios = brothers.length;
@@ -685,6 +694,9 @@ export default function HomePage() {
           const maxH = nodes.reduce((m, n) => Math.max(m, n.offsetHeight), 0);
           nodes.forEach(n => { n.style.height = maxH + 'px'; });
         })();
+
+        // Ensure header structure matches current breakpoint
+        reflowGroupHeaders(summary);
       }
 
       function fmtPctFlexible(n) { return parseFloat(Number(n).toFixed(3)).toString() + '%'; }
@@ -702,8 +714,7 @@ export default function HomePage() {
       const baseline = '7'.repeat(brothers.length);
       const baselineRow = evaluateSeed(baseline);
       const rowsDataKept = [baselineRow];
-      const baselineX = Number.isFinite(baselineRow.expChests) ? baselineRow.expChests : Number.POSITIVE_INFINITY;
-      const threshold = Math.floor(baselineX - 1);
+      // Discard rule: drop permutations with exactly 0 expected useful items per chest
 
       for (let r = 0; r < seeds.length; r++) {
         const code = seeds[r];
@@ -714,8 +725,7 @@ export default function HomePage() {
         const c7 = (code.match(/7/g) || []).length;
         if (c1 === brothers.length - 1 && c2 === 1 && c7 === 0) continue;
         const row = evaluateSeed(code);
-        const rowX = Number.isFinite(row.expChests) ? row.expChests : Number.POSITIVE_INFINITY;
-        if (rowX >= threshold) rowsDataKept.push(row);
+        if (row.expUseful !== 0) rowsDataKept.push(row);
       }
 
       const keptCount = rowsDataKept.length;
