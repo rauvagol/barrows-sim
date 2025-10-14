@@ -136,6 +136,91 @@ export default function HomePage() {
 
     function fmtPctValue(num) { return Number(num.toFixed(2)).toString() + '%'; }
 
+    function computeGroups() {
+      const isSix = window.matchMedia('(min-width: 1920px)').matches;
+      const isOne = window.matchMedia('(max-width: 620px)').matches;
+      const isTwo = !isOne && window.matchMedia('(max-width: 900px)').matches;
+      if (isSix) return [[0,1,2,3,4,5]]; // 6-wide: one array of 6
+      if (isTwo) return [[0,1],[2,3],[4,5]]; // 2-wide: three arrays of 2
+      if (isOne) return [[0],[1],[2],[3],[4],[5]]; // 1-wide: six arrays of 1
+      return [[0,1,2],[3,4,5]]; // 3-wide: two arrays of 3
+    }
+
+    function getCurrentCols() {
+      const isSix = window.matchMedia('(min-width: 1920px)').matches;
+      const isOne = window.matchMedia('(max-width: 620px)').matches;
+      const isTwo = !isOne && window.matchMedia('(max-width: 900px)').matches;
+      if (isSix) return 6;
+      if (isTwo) return 2;
+      if (isOne) return 1;
+      return 3;
+    }
+
+    function headerTemplateFor(cols) {
+      const isSix = window.matchMedia('(min-width: 1920px)').matches;
+      const isOne = window.matchMedia('(max-width: 620px)').matches;
+      const isTwo = !isOne && window.matchMedia('(max-width: 900px)').matches;
+      if (isSix) return 'repeat(' + cols + ', 244px)';
+      if (isTwo) return 'repeat(' + cols + ', minmax(260px, 1fr))';
+      if (isOne) return 'repeat(' + cols + ', 1fr)';
+      return 'repeat(' + cols + ', minmax(280px, 1fr))';
+    }
+
+    function isSixWide() { return window.matchMedia('(min-width: 1920px)').matches; }
+
+    function reflowGroupHeaders(container) {
+      if (!container) return;
+      const resCols = Array.from(container.querySelectorAll('.res-col'));
+      if (!resCols.length) return;
+      // Capture footers (lines that span full width)
+      const footerLines = Array.from(container.querySelectorAll('.res-line')).filter(n => (n.style && n.style.gridColumn === '1 / -1'));
+      // Remove all children to rebuild
+      const groups = computeGroups();
+      const fragment = document.createDocumentFragment();
+      const byIdx = {};
+      resCols.forEach(n => { const i = parseInt(n.dataset.idx || '-1', 10); byIdx[i] = n; });
+      groups.forEach((idxs, gi) => {
+        const header = document.createElement('div');
+        header.className = 'title-bar';
+        header.style.display = 'grid';
+        header.style.gridTemplateColumns = (isSixWide() ? '12px 28px ' : '28px ') + headerTemplateFor(idxs.length);
+        const btn = document.createElement('button');
+        btn.className = 'collapse-btn';
+        btn.setAttribute('aria-label', 'Toggle group ' + (gi + 1));
+        // Text/expanded set after we determine current visibility
+        if (isSixWide && typeof isSixWide === 'function' && isSixWide()) {
+          btn.style.gridColumn = '2';
+          btn.style.marginLeft = '22px';
+        }
+        header.appendChild(btn);
+        idxs.forEach(idx => {
+          const t = document.createElement('div');
+          t.className = 'title-cell header-title';
+          t.textContent = 'Tunnel ' + brothers[idx];
+          header.appendChild(t);
+        });
+        fragment.appendChild(header);
+        const groupCols = [];
+        idxs.forEach(idx => { const node = byIdx[idx]; if (node) { fragment.appendChild(node); groupCols.push(node); } });
+        // Majority rule: if half or more are visible, expand all; else collapse all
+        const visibleCount = groupCols.reduce((n, c) => n + (c.style.display !== 'none' ? 1 : 0), 0);
+        const shouldExpandAll = (visibleCount * 2) >= groupCols.length;
+        groupCols.forEach(c => { c.style.display = shouldExpandAll ? '' : 'none'; });
+        btn.dataset.expanded = shouldExpandAll ? 'true' : 'false';
+        btn.textContent = shouldExpandAll ? '▾' : '▸';
+        btn.addEventListener('click', () => {
+          const expanded = btn.dataset.expanded !== 'false';
+          const next = !expanded;
+          btn.dataset.expanded = next ? 'true' : 'false';
+          btn.textContent = next ? '▾' : '▸';
+          groupCols.forEach(c => { c.style.display = next ? '' : 'none'; });
+        });
+      });
+      footerLines.forEach(n => fragment.appendChild(n));
+      container.innerHTML = '';
+      container.appendChild(fragment);
+    }
+
     function runSimulate() {
       const outEl = outputEl;
       const summary = summaryEl;
@@ -145,26 +230,37 @@ export default function HomePage() {
       outEl.textContent = JSON.stringify(payload, null, 2);
 
       summary.innerHTML = '';
-      const titleBar = document.createElement('div');
-      titleBar.className = 'title-bar';
-      const collapse = document.createElement('button');
-      collapse.className = 'collapse-btn';
-      collapse.setAttribute('aria-label', 'Toggle details');
-      collapse.textContent = '▸';
-      collapse.addEventListener('click', () => {
-        const isCollapsed = summary.classList.toggle('collapsed');
-        collapse.textContent = isCollapsed ? '▸' : '▾';
-      });
-      titleBar.appendChild(collapse);
-      summary.appendChild(titleBar);
-      summary.classList.add('collapsed');
+      const groups = computeGroups();
 
       let sumUseful = 0;
       let sumTotalDrops = 0;
       let sumPct = 0;
       let sumExpUniques = 0;
 
-      brothers.forEach((name) => {
+      groups.forEach((idxs, gi) => {
+        const header = document.createElement('div');
+        header.className = 'title-bar';
+        // Header row contains [button] + [names...] inside same bar
+        header.style.gridTemplateColumns = (isSixWide() ? '12px 28px ' : '28px ') + headerTemplateFor(idxs.length);
+        summary.appendChild(header);
+        const btn = document.createElement('button');
+        btn.className = 'collapse-btn';
+        btn.setAttribute('aria-label', 'Toggle group ' + (gi + 1));
+        if (isSixWide && typeof isSixWide === 'function' && isSixWide()) {
+          btn.style.gridColumn = '2';
+          btn.style.marginLeft = '22px';
+        }
+        header.appendChild(btn);
+        idxs.forEach(idx => {
+          const t = document.createElement('div');
+          t.className = 'title-cell header-title';
+          t.textContent = 'Tunnel ' + brothers[idx];
+          header.appendChild(t);
+        });
+
+        const groupCols = [];
+        idxs.forEach(idx => {
+          const name = brothers[idx];
         const ruleTextMap = {
           'Always skip (default)': 'Skip',
           'Skip if tunnel boss': 'Skip in Tunnel',
@@ -177,10 +273,11 @@ export default function HomePage() {
 
         const col = document.createElement('div');
         col.className = 'res-col';
-        const title = document.createElement('div');
-        title.className = 'title-cell';
-        title.textContent = 'Tunnel ' + name;
-        titleBar.appendChild(title);
+        col.dataset.idx = String(idx);
+        // Inline title for narrow layouts (3-wide)
+        const inlineTitle = document.createElement('div');
+        inlineTitle.className = 'title-cell inline-title';
+        inlineTitle.textContent = 'Tunnel ' + name;
         const rule = document.createElement('div');
         rule.className = 'res-line';
         rule.textContent = ruleText;
@@ -233,6 +330,7 @@ export default function HomePage() {
         const dropsUseful = document.createElement('div'); dropsUseful.className = 'res-line'; dropsUseful.textContent = 'useful drops: ' + usefulCount + ' (' + pct(usefulCount) + ')';
         const dropsUnwanted = document.createElement('div'); dropsUnwanted.className = 'res-line'; dropsUnwanted.textContent = 'unwanted drops: ' + unwantedCount + ' (' + pct(unwantedCount) + ')';
 
+        col.appendChild(inlineTitle);
         col.appendChild(rule);
         col.appendChild(result);
         col.appendChild(unique);
@@ -242,10 +340,26 @@ export default function HomePage() {
         col.appendChild(dropsUseful);
         col.appendChild(dropsUnwanted);
         summary.appendChild(col);
+        groupCols.push(col);
 
         sumUseful += usefulCount;
         sumTotalDrops += totalDrops;
         sumPct += totalDrops > 0 ? (usefulCount / totalDrops) : 0;
+        });
+
+        // Majority rule on initial render
+        const visCount = groupCols.reduce((n,c)=> n + (c.style.display !== 'none' ? 1 : 0), 0);
+        const expandAll = (visCount * 2) >= groupCols.length;
+        groupCols.forEach(c => { c.style.display = expandAll ? '' : 'none'; });
+        btn.dataset.expanded = expandAll ? 'true' : 'false';
+        btn.textContent = expandAll ? '▾' : '▸';
+        btn.addEventListener('click', () => {
+          const expanded = btn.dataset.expanded !== 'false';
+          const next = !expanded;
+          btn.dataset.expanded = next ? 'true' : 'false';
+          btn.textContent = next ? '▾' : '▸';
+          groupCols.forEach(c => { c.style.display = next ? '' : 'none'; });
+        });
       });
 
       const scenarios = brothers.length;
@@ -417,22 +531,9 @@ export default function HomePage() {
           const idx = Math.max(1, Math.min(7, parseInt(code[i], 10) || 1)) - 1;
           rulesForSeed[brothers[i]] = skipOptions[idx];
         }
-        // Clear and build title bar
+        // Clear and build grouped headers (no global collapse)
         summary.innerHTML = '';
-        const titleBar = document.createElement('div');
-        titleBar.className = 'title-bar';
-        const collapse = document.createElement('button');
-        collapse.className = 'collapse-btn';
-        collapse.setAttribute('aria-label', 'Toggle details');
-        collapse.textContent = '▾'; // start expanded
-        collapse.addEventListener('click', () => {
-          const isCollapsed = summary.classList.toggle('collapsed');
-          collapse.textContent = isCollapsed ? '▸' : '▾';
-        });
-        titleBar.appendChild(collapse);
-        summary.appendChild(titleBar);
-
-        // Do NOT add 'collapsed' class so it starts expanded
+        const groups = computeGroups();
 
         let sumUseful = 0;
         let sumTotalDrops = 0;
@@ -449,17 +550,36 @@ export default function HomePage() {
           'Always kill': 'Kill'
         };
 
-        brothers.forEach((name) => {
-          const ruleText = ruleTextMap[rulesForSeed[name]] || rulesForSeed[name];
-          const col = document.createElement('div');
-          col.className = 'res-col';
-          const title = document.createElement('div');
-          title.className = 'title-cell';
-          title.textContent = 'Tunnel ' + name;
-          titleBar.appendChild(title);
-          const rule = document.createElement('div');
-          rule.className = 'res-line';
-          rule.textContent = ruleText;
+        groups.forEach((idxs, gi) => {
+          const header = document.createElement('div');
+        header.className = 'title-bar';
+        header.style.gridTemplateColumns = '28px ' + headerTemplateFor(idxs.length);
+          summary.appendChild(header);
+          const btn = document.createElement('button');
+          btn.className = 'collapse-btn';
+          btn.setAttribute('aria-label', 'Toggle group ' + (gi + 1));
+          btn.textContent = '▾';
+          btn.dataset.expanded = 'true';
+          header.appendChild(btn);
+          idxs.forEach(idx => {
+            const t = document.createElement('div');
+            t.className = 'title-cell header-title';
+            t.textContent = 'Tunnel ' + brothers[idx];
+            header.appendChild(t);
+          });
+
+          const groupCols = [];
+          idxs.forEach(idx => {
+            const name = brothers[idx];
+            const ruleText = ruleTextMap[rulesForSeed[name]] || rulesForSeed[name];
+            const col = document.createElement('div');
+            col.className = 'res-col';
+            const inlineTitle = document.createElement('div');
+            inlineTitle.className = 'title-cell inline-title';
+            inlineTitle.textContent = 'Tunnel ' + name;
+            const rule = document.createElement('div');
+            rule.className = 'res-line';
+            rule.textContent = ruleText;
 
           const killed = [];
           for (let bi = 0; bi < brothers.length; bi++) {
@@ -510,19 +630,31 @@ export default function HomePage() {
           const dropsUseful = document.createElement('div'); dropsUseful.className = 'res-line'; dropsUseful.textContent = 'useful drops: ' + usefulCount + ' (' + pct(usefulCount) + ')';
           const dropsUnwanted = document.createElement('div'); dropsUnwanted.className = 'res-line'; dropsUnwanted.textContent = 'unwanted drops: ' + unwantedCount + ' (' + pct(unwantedCount) + ')';
 
-          col.appendChild(rule);
-          col.appendChild(result);
-          col.appendChild(unique);
-          col.appendChild(expected);
-          col.appendChild(dropsNeeded);
-          col.appendChild(dropsWanted);
-          col.appendChild(dropsUseful);
-          col.appendChild(dropsUnwanted);
-          summary.appendChild(col);
+          col.appendChild(inlineTitle);
+            col.appendChild(inlineTitle);
+            col.appendChild(rule);
+            col.appendChild(result);
+            col.appendChild(unique);
+            col.appendChild(expected);
+            col.appendChild(dropsNeeded);
+            col.appendChild(dropsWanted);
+            col.appendChild(dropsUseful);
+            col.appendChild(dropsUnwanted);
+            summary.appendChild(col);
+            groupCols.push(col);
 
-          sumUseful += usefulCount;
-          sumTotalDrops += totalDrops;
-          sumPct += totalDrops > 0 ? (usefulCount / totalDrops) : 0;
+            sumUseful += usefulCount;
+            sumTotalDrops += totalDrops;
+            sumPct += totalDrops > 0 ? (usefulCount / totalDrops) : 0;
+          });
+
+          btn.addEventListener('click', () => {
+            const expanded = btn.dataset.expanded !== 'false';
+            const next = !expanded;
+            btn.dataset.expanded = next ? 'true' : 'false';
+            btn.textContent = next ? '▾' : '▸';
+            groupCols.forEach(c => { c.style.display = next ? '' : 'none'; });
+          });
         });
 
         const scenarios = brothers.length;
@@ -671,10 +803,22 @@ export default function HomePage() {
     if (simulateBtn) simulateBtn.addEventListener('click', runSimulate);
     if (optimizeBtn) optimizeBtn.addEventListener('click', runOptimize);
 
+    // Resize observer: reflow headers without recomputing any values
+    let resizeRaf = null;
+    const handleResize = () => {
+      if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(() => {
+        reflowGroupHeaders(summaryEl);
+        reflowGroupHeaders(optimalEl);
+      });
+    };
+    if (typeof window !== 'undefined') window.addEventListener('resize', handleResize);
+
     // Cleanup on unmount
     return () => {
       if (simulateBtn) simulateBtn.removeEventListener('click', runSimulate);
       if (optimizeBtn) optimizeBtn.removeEventListener('click', runOptimize);
+      if (typeof window !== 'undefined') window.removeEventListener('resize', handleResize);
     };
   }, [brothers, slots, skipOptions, wantedWeight]);
 
@@ -700,11 +844,15 @@ export default function HomePage() {
         .btn { padding: 8px 14px; border-radius: 6px; border: 1px solid #cfcfcf; background: #f7f7f7; cursor: pointer; }
         .out { display: none; margin-top: 12px; padding: 12px; border: 1px dashed #cccccc; border-radius: 8px; background: #fafafa; color: #111; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; min-height: 80px; }
         .summary { display: grid; grid-template-columns: repeat(3, minmax(280px, 1fr)); gap: 12px; padding: 12px; border: 1px solid #cccccc; border-radius: 8px; margin-top: 12px; }
+        .summary:empty { display: none; }
         .res-col { display: grid; gap: 8px; align-content: start; }
         .res-title { text-align: center; font-weight: 700; }
-        .title-bar { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(280px, 1fr)); gap: 12px; padding: 6px 42px; border: 1px solid #cccccc; border-radius: 8px; background: #fafafa; margin-top: 12px; align-items: center; position: relative; }
+        .title-bar { grid-column: 1 / -1; display: grid; grid-template-columns: 28px repeat(3, minmax(280px, 1fr)); gap: 12px; padding: 6px 12px; border: 1px solid #cccccc; border-radius: 8px; background: #fafafa; margin-top: 12px; align-items: center; }
         .title-cell { text-align: center; font-weight: 700; font-size: 14px; padding: 3px 10px; }
-        .collapse-btn { position: absolute; left: 8px; right: auto; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: 1px solid #cfcfcf; background: #f7f7f7; border-radius: 4px; cursor: pointer; font-size: 22px; line-height: 1; }
+        /* Show header titles in the bar at all widths; hide per-column titles */
+        .header-title { display: block; }
+        .inline-title { display: none; }
+        .collapse-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: 1px solid #cfcfcf; background: #f7f7f7; border-radius: 4px; cursor: pointer; font-size: 22px; line-height: 1; }
         .summary.collapsed .res-col { display: none; }
         .res-line { padding: 8px 10px; border: 1px dashed #cccccc; border-radius: 6px; background: #fafafa; text-align: center; }
         .kill-line { min-height: 46px; display: flex; align-items: center; justify-content: center; }
@@ -721,6 +869,7 @@ export default function HomePage() {
           .row, .grid { grid-template-columns: repeat(6, 244px); justify-content: center; }
           .summary { grid-template-columns: repeat(6, 244px); justify-content: center; }
           .title-bar { grid-template-columns: repeat(6, 244px); justify-content: center; }
+          /* 6-wide keeps same visibility settings */
           .dropdown-item select { min-width: 0; }
         }
         @media (max-width: 900px) {
